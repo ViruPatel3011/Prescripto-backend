@@ -19,7 +19,7 @@ const addDoctor = async (req, res) => {
       address,
     } = req.body;
     const imageFile = req.file;
-   
+
     // checking for all data to add doctor
 
     if (
@@ -60,15 +60,12 @@ const addDoctor = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    console.log("hashedPassword", hashedPassword);
 
     // upload image to cloudinary
     const imageUpload = await cloudinary.uploader.upload(imageFile?.path, {
       resource_type: "image",
     });
-    console.log("imageUpload", imageUpload);
     const imageUrl = imageUpload.secure_url; // This is cloudinary image url
-    console.log("imageUrl", imageUrl);
 
     const doctorData = {
       name,
@@ -84,7 +81,6 @@ const addDoctor = async (req, res) => {
       date: Date.now(),
     };
 
-    console.log("doctorData:", doctorData);
     const newDoctor = new doctorModel(doctorData);
     await newDoctor.save();
     res.json({ success: true, message: "Successfully added Doctor!!" });
@@ -111,10 +107,11 @@ const loginAdmin = async (req, res) => {
       const token = jwt.sign(email + password, process.env.JWT_SECRET);
       res.json({
         success: true,
+        message: "LoggedIn Successfully",
         token,
       });
     } else {
-      return json({
+      res.json({
         success: false,
         message: "Invalid Credentials",
       });
@@ -128,4 +125,22 @@ const loginAdmin = async (req, res) => {
   }
 };
 
-export { addDoctor, loginAdmin };
+// API to get all doctors list for admin panel
+
+const getAllDoctors = async (req, res) => {
+  try {
+    const doctors = await doctorModel.find({}).select("-password");
+    res.json({
+      success: true,
+      doctors,
+    });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message || "Error occured during doctor fetching",
+    });
+  }
+};
+
+export { addDoctor, loginAdmin ,getAllDoctors};
