@@ -3,6 +3,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v2 as cloudinary } from "cloudinary";
 import userModel from "../models/userModel.js";
+import doctorModel from "../models/doctorModel.js";
+import appointmentModel from "../models/appointmentModel.js";
 
 // API to register User
 const registerUser = async (req, res) => {
@@ -159,4 +161,142 @@ const updateUserProfile = async (req, res) => {
   }
 };
 
-export { registerUser, loginUser, getUserProfileDetails, updateUserProfile };
+// API to book Appointment
+const bookAppointment = async (req, res) => {
+  try {
+    const { userId, docId, slotDate, slotTime } = req.body;
+    const docData = await doctorModel.findById(docId).select("-password");
+
+    if (!docData.available) {
+      return res.json({
+        success: false,
+        message: "Doctor not Available!!",
+      });
+    }
+
+    let slots_booked = docData.slots_booked;
+
+    // Checking for slots availability
+    if (slots_booked[slotDate]) {
+      if (slots_booked[slotDate].includes(slotTime)) {
+        return res.json({
+          success: false,
+          message: "Slot not Available!!",
+        });
+      } else {
+        slots_booked[slotDate].push(slotTime);
+      }
+    } else {
+      // If nobody have booked slot on that date
+      slots_booked[slotDate] = [];
+      slots_booked[slotDate].push(slotTime);
+    }
+
+    const userData = await userModel.findById(userId).select("-password");
+
+    // We are removing this property from here because when we store docData in Appoinment then we dont need old history of slots_booked
+    delete docData.slots_booked;
+
+    const appointmentData = {
+      userId,
+      docId,
+      userData,
+      docData,
+      amount: docData.fees,
+      slotTime,
+      slotDate,
+      date: Date.now(),
+    };
+
+    const newAppointment = new appointmentModel(appointmentData);
+    await newAppointment.save();
+
+    // save new slots data in docData
+    const updatedDocData = await doctorModel.findByIdAndUpdate(docId, {
+      slots_booked,
+    });
+
+    res.json({
+      success: true,
+      message: "Appointment booked",
+    });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message || "Error occured while booking appoinment",
+    });
+  }
+};
+
+// API to get list of all Appointments
+const getAllAppointments = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const appointments = await appointmentModel.find({ userId });
+    res.json({
+      success: true,
+      appointments,
+    });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message || "Error occured while fetching appoinment",
+    });
+  }
+};
+
+// API to cancel the Appointment
+const cancelAppointment = async (req, res) => {
+  try {
+    const { userId, appointmentId } = req.body;
+
+    const appointmentData = await appointmentModel.findById(appointmentId);
+
+    // Verify appointment user
+    if (appointmentData.userId !== userId) {
+      return res.json({
+        success: false,
+        message: "Unauthorized action",
+      });
+    }
+
+    await appointmentModel.findByIdAndUpdate(appointmentId, {
+      cancelled: true,
+    });
+
+    // releasing doctor slots
+    const { docId, slotDate, slotTime } = appointmentData;
+
+    const doctorData = await doctorModel.findById(docId);
+    let slots_booked = doctorData.slots_booked;
+
+    slots_booked[slotDate] = slots_booked[slotDate].filter(
+      (e) => e !== slotTime
+    );
+
+    await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+
+    res.json({
+      success: true,
+      message: "Appointment Cancelled",
+    });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message || "Error occured while cancel appoinment",
+    });
+  }
+};
+
+export {
+  registerUser,
+  loginUser,
+  getUserProfileDetails,
+  updateUserProfile,
+  bookAppointment,
+  getAllAppointments,
+  cancelAppointment,
+};
